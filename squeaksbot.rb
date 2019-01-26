@@ -3,20 +3,14 @@ require 'discordrb'
 
 # frozen_string_literal: true
 
-# This simple bot responds to every "Ping!" message with a "Pong!"
-
 require 'discordrb'
 
-# This statement creates a bot with the specified token and application ID. After this line, you can add events to the
-# created bot, and eventually run it.
-#
-# If you don't yet have a token to put in here, you will need to create a bot account here:
-#   https://discordapp.com/developers/applications
-# If you're wondering about what redirect URIs and RPC origins, you can ignore those for now. If that doesn't satisfy
-# you, look here: https://github.com/meew0/discordrb/wiki/Redirect-URIs-and-RPC-origins
-# After creating the bot, simply copy the token (*not* the OAuth2 secret) and put it into the
-# respective place.
-bot = Discordrb::Bot.new token: ENV['DISCORD_TOKEN']
+# bot = Discordrb::Bot.new token: ENV['DISCORD_TOKEN']
+bot = Discordrb::Commands::CommandBot.new token: ENV['DISCORD_TOKEN'], prefix: '!'
+
+SCHEDULE = {}
+DAYS = %w[Mon Tue Wed Thu Fri Sat Sun]
+HOURS = %w[1000 1100 1200 1300 1800 1900 2000]
 
 # Here we output the invite URL to the console so the bot account can be invited to the channel. This only has to be
 # done once, afterwards, you can remove this part if you want
@@ -27,27 +21,39 @@ puts 'Click on it to invite it to your server.'
 #####################
 #
 #
-#      Private Methods
+#      Schedule Methods
+#      Make this a class?
 #
 #
 #####################
 
 def build_weekly_schedule
-  schedule = {}
-  %w[Mon Tue Wed Thu Fri Sat Sun].each do |day|
-    schedule[day] = build_daily_schedule
+  return unless SCHEDULE.empty?
+
+  DAYS.each do |day|
+    SCHEDULE[day] = build_daily_schedule
   end
-  schedule
+  SCHEDULE
 end
 
 def build_daily_schedule
-  schedule = {}
-  %w[1000 1100 1200 1300 1800 1900 2000].each do |hour|
-    schedule[hour] = %w[empty empty]
+  day = {}
+  HOURS.each do |hour|
+    day[hour] = %w[empty empty]
   end
-  schedule
+  day
 end
 
+def print_schedule(event)
+  event << "This weeks schedule -"
+  SCHEDULE.each do |day,times|
+    event << "#{day}"
+    times.each do |hour,slots|
+      event << "#{hour}:  #{slots[0]}, #{slots[1]}" unless slots[0] == 'empty' && slots[1] == 'empty'
+    end
+  end
+  nil
+end
 
 ####################
 #
@@ -57,18 +63,51 @@ end
 #
 ####################
 
-bot.message(content: 'Ping!') do |event|
-  event.respond 'Pong!'
+bot.message(content: '!schedule') do |event|
+  build_weekly_schedule if SCHEDULE.empty?
+
+  print_schedule event
 end
 
-bot.message(content: '!schedule') do |e|
-  build_weekly_schedule.each do |day,times|
-    e << "#{day}"
-    times.each do |hour,slots|
-      e << "#{hour}:  #{slots[0]}, #{slots[1]}"
+bot.command(:signup) do |event, *args|
+  # Signs you up for the slot you asked for
+  build_weekly_schedule if SCHEDULE.empty?
+
+  day, hour = args
+
+  return "Wrong Date Format" unless DAYS.include? day
+
+  return "Wrong Hour Format" unless HOURS.include? hour
+
+  # This should make sure you can't signup over someone else, so only if the spot in the array is empty
+  # Return some type of error message if it is not empty.
+  SCHEDULE[day][hour][0] == 'empty' ? SCHEDULE[day][hour][0] = event.user.name : SCHEDULE[day][hour][1]
+
+  # Make this a PM?
+  "#{event.user.name} wants to sign up for #{day} at #{hour}"
+
+  #Maybe don't do this if we're PMing the user.
+  print_schedule event
+end
+
+bot.command(:remove) do |event|
+  # Will find your name and remove it from the schedule
+  return "I don't think you signed up." if SCHEDULE.empty?
+
+  # Find a better way to do this that isn't iterating through the whole hash.
+  SCHEDULE.each do |day, times|
+    times.each do |hour, slots|
+      if slots.include? event.user.name
+        slots[0] == event.user.name ? slots[0] = 'empty' : slots[1] = 'empty'
+        event.user.pm "You have been removed."
+        return "#{event.user.name} was removed from #{day} at #{hour}"
+      end
     end
   end
-  e
+end
+
+bot.command(:commands) do |event|
+  # implement something here that returns all of the available commands
 end
 
 # This method call has to be put at the end of your script, it is what makes the bot actually connect to Discord. If you
